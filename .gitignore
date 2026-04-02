@@ -1,0 +1,23 @@
+# Komet Pipeline Workspace .gitignore
+# ════════════════════════════════════
+#
+# Ignore everything, whitelist only workspace-owned files.
+# Component repos are independent git repos cloned by ike:init.
+
+# ── Ignore everything by default ─────────────────────────────────
+*
+
+# ── Whitelist workspace-level files ──────────────────────────────
+!.gitignore
+!pom.xml
+!workspace.yaml
+!README.adoc
+!SPLIT-BRAIN.adoc
+
+# ── Whitelist workspace-owned directories ────────────────────────
+!.mvn/
+!.mvn/**
+!checkpoints/
+!checkpoints/**
+!.run/
+!.run/**

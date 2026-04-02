@@ -1,0 +1,93 @@
+# workspace.yaml — Komet Pipeline Workspace
+# ═══════════════════════════════════════════
+#
+# Java application stack workspace: knowledge architecture primitives,
+# persistent storage, knowledge editor, and desktop distribution.
+#
+# This workspace supersedes tinkar-komet-desktop-ws with updated
+# tooling (ike-maven-plugin v47), improved Syncthing integration,
+# and a branchable workspace model.
+#
+# Bootstrap:
+#   git clone https://github.com/knowledge-graphlet/komet-pipeline-ws.git
+#   cd komet-pipeline-ws
+#   mvn ike:init
+#   mvn clean install
+#
+# Convention: workspace repos use the `-ws` suffix.
+
+schema-version: "1.0"
+generated: 2026-04-02
+
+defaults:
+  branch: main
+  maven-version: "4.0.0-rc-5"
+
+component-types:
+  software:
+    description: "Java libraries and applications"
+    build-command: "mvn clean install"
+    checkpoint-mechanism: git-tag
+
+components:
+
+  # ── Core: Knowledge architecture ──────────────────────────────
+
+  tinkar-core:
+    type: software
+    description: >
+      Knowledge architecture primitives: STAMP coordinates, component
+      model, pattern definitions, entity store API, EL++ binding.
+    repo: https://github.com/ikmdev/tinkar-core.git
+    branch: feature/kec-jan-24
+    version: 1.127.2-kec-jan-24-SNAPSHOT
+    groupId: dev.ikm.tinkar
+    depends-on: []
+
+  rocks-kb:
+    type: software
+    description: >
+      RocksDB-backed knowledge base implementation. Persistent storage
+      for Tinkar entities.
+    repo: https://github.com/ikmdev/rocks-kb.git
+    branch: feature/kec-rocks-jan-25
+    version: 0.1.0-kec-rocks-jan-25-SNAPSHOT
+    groupId: dev.ikm.ike
+    depends-on:
+      - component: tinkar-core
+        relationship: build
+
+  # ── Application: Komet ────────────────────────────────────────
+
+  komet:
+    type: software
+    description: >
+      Knowledge graph editor. JavaFX application for authoring,
+      navigating, and validating knowledge content.
+    repo: https://github.com/ikmdev/komet.git
+    branch: main
+    version: 1.59.0-SNAPSHOT
+    groupId: dev.ikm.komet
+    depends-on:
+      - component: tinkar-core
+        relationship: build
+      - component: rocks-kb
+        relationship: build
+
+  komet-desktop:
+    type: software
+    description: >
+      Desktop distribution of Komet via jlink. Produces
+      platform-specific installers.
+    repo: https://github.com/ikmdev/komet-desktop.git
+    branch: main
+    version: 3.0.0-SNAPSHOT
+    groupId: dev.ikm.build
+    depends-on:
+      - component: komet
+        relationship: build
+
+groups:
+  core: [tinkar-core, rocks-kb]
+  app: [komet, komet-desktop]
+  all: [core, app]

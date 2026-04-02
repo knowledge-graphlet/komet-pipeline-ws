@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Komet Pipeline Workspace Aggregator
+
+  Every subproject is inside a file-activated profile so the reactor
+  automatically includes only the repos that are physically cloned.
+  Clone more repos and they join the reactor on the next build.
+
+  Usage:
+    mvn clean install                        # All cloned repos
+    mvn clean install -pl tinkar-core -am    # One component + deps
+    mvn ike:init                             # Clone all repos
+    mvn ike:status                           # Git status across repos
+    mvn ike:dashboard                        # Full workspace overview
+-->
+<project xmlns="http://maven.apache.org/POM/4.1.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.1.0
+                             https://maven.apache.org/xsd/maven-4.1.0.xsd"
+         root="true">
+    <modelVersion>4.1.0</modelVersion>
+
+    <groupId>local.aggregate</groupId>
+    <artifactId>komet-pipeline-ws</artifactId>
+    <version>1.0.0-SNAPSHOT</version>
+    <packaging>pom</packaging>
+
+    <name>Komet Pipeline Workspace</name>
+
+    <properties>
+        <ike-maven-plugin.version>47</ike-maven-plugin.version>
+    </properties>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>network.ike</groupId>
+                <artifactId>ike-maven-plugin</artifactId>
+                <version>${ike-maven-plugin.version}</version>
+            </plugin>
+        </plugins>
+    </build>
+
+    <profiles>
+
+        <!-- ── Core ──────────────────────────────────────────────── -->
+
+        <profile>
+            <id>with-tinkar-core</id>
+            <activation>
+                <file>
+                    <exists>${project.basedir}/tinkar-core/pom.xml</exists>
+                </file>
+            </activation>
+            <subprojects>
+                <subproject>tinkar-core</subproject>
+            </subprojects>
+        </profile>
+
+        <profile>
+            <id>with-rocks-kb</id>
+            <activation>
+                <file>
+                    <exists>${project.basedir}/rocks-kb/pom.xml</exists>
+                </file>
+            </activation>
+            <subprojects>
+                <subproject>rocks-kb</subproject>
+            </subprojects>
+        </profile>
+
+        <!-- ── Application ───────────────────────────────────────── -->
+
+        <profile>
+            <id>with-komet</id>
+            <activation>
+                <file>
+                    <exists>${project.basedir}/komet/pom.xml</exists>
+                </file>
+            </activation>
+            <subprojects>
+                <subproject>komet</subproject>
+            </subprojects>
+        </profile>
+
+        <profile>
+            <id>with-komet-desktop</id>
+            <activation>
+                <file>
+                    <exists>${project.basedir}/komet-desktop/pom.xml</exists>
+                </file>
+            </activation>
+            <subprojects>
+                <subproject>komet-desktop</subproject>
+            </subprojects>
+        </profile>
+
+        <!-- jlink profiles (empty stubs for subprojects that define them) -->
+        <profile><id>jlink-debug</id></profile>
+        <profile><id>jlink-profile</id></profile>
+        <profile><id>jlink-standard</id></profile>
+
+    </profiles>
+
+</project>

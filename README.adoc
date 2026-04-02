@@ -1,0 +1,187 @@
+= Komet Pipeline Workspace
+:toc:
+:toc-placement!:
+
+Workspace aggregator for the Komet application stack: knowledge
+architecture primitives (tinkar-core), persistent storage (rocks-kb),
+knowledge editor (komet), and desktop distribution (komet-desktop).
+
+toc::[]
+
+== How This Differs from tinkar-komet-desktop-ws
+
+This workspace supersedes
+https://github.com/kec/tinkar-komet-desktop-ws[tinkar-komet-desktop-ws]
+with several improvements:
+
+Updated tooling::
+Uses `ike-maven-plugin` v47 (was v29). Benefits from all
+`InitWorkspaceMojo` improvements: automatic Maven wrapper installation,
+`.mvn/jvm.config` creation, and post-checkout hook setup per component.
+
+Improved Syncthing integration::
+The shared Syncthing ignore rules (`stignore-shared`) now use the
+`(?d)` prefix on directory-level patterns (`.git/`, `target/`, etc.).
+This tells Syncthing to delete ignored files when their parent directory
+is removed on the remote machine, preventing the "directory has been
+deleted but contains ignored files" errors that previously required
+manual cleanup. See <<stignore-changes>>.
+
+Workspace branching model::
+The workspace itself is versioned in Git, enabling developers to branch
+the workspace configuration. A workspace branch captures which
+component branches and versions are in use, so developers can check out
+each other's workspace setups without impacting the aggregated projects.
+This supports parallel experimentation: one developer can work on a
+feature branch that requires coordinated changes across multiple
+components, while another developer's workspace remains on `main`.
+
+Incremental evolution::
+Demonstrates evolution of workspace capabilities without directly
+modifying the aggregated projects. The component repos (tinkar-core,
+rocks-kb, komet, komet-desktop) are identical -- only the workspace
+tooling and conventions advance.
+
+IntelliJ fast incremental builds::
+The workspace aggregator has `root="true"` in its POM, marking the
+Maven 4.1.0 reactor boundary. Component sub-repos do _not_ set
+`root="true"`, so IntelliJ can open any component individually as a
+standalone project and perform fast incremental builds without
+resolving the full workspace reactor.
+
+== Bootstrap
+
+[source,bash]
+----
+git clone https://github.com/knowledge-graphlet/komet-pipeline-ws.git
+cd komet-pipeline-ws
+mvn ike:init        # <1>
+mvn clean install   # <2>
+----
+<1> Clones all component repos in dependency order; installs Maven
+    wrapper and JVM config per component.
+<2> Builds the full stack. Use `-pl tinkar-core -am` to build a
+    single component and its dependencies.
+
+== Environment Setup
+
+If this is a new machine or a machine that hasn't been updated
+recently, perform these steps to ensure the latest Syncthing
+integration and git hooks are in place.
+
+=== 1. Install or update Syncthing
+
+Install https://github.com/syncthing/syncthing-macos/releases[Syncthing
+for macOS] (v2.0.14+). Accept the shared `ike-dev` folder from the
+other machine if not already configured.
+
+Ensure `.stignore` exists:
+
+[source,bash]
+----
+echo '#include stignore-shared' > ~/ike-dev/.stignore
+----
+
+[[stignore-changes]]
+=== 2. Update stignore-shared
+
+The shared ignore rules now use `(?d)` prefixes. This file syncs
+automatically via Syncthing, but verify the update arrived:
+
+[source,bash]
+----
+head -5 ~/ike-dev/stignore-shared
+# Should show: (?d).git/ and (?d)target/
+----
+
+The `(?d)` flag solves a long-standing problem: when a project
+directory is deleted on one machine, Syncthing could not remove it on
+the other machine because it contained ignored files (`.git/`,
+`target/`). The deletion would block, leaving stale directories that
+caused persistent "out of sync" errors. With `(?d)`, Syncthing
+deletes the ignored files along with the parent directory.
+
+=== 3. Update git hooks
+
+[source,bash]
+----
+~/ike-dev/scripts/setup-hooks.sh
+----
+
+This installs the global `post-checkout` and `post-merge` hooks that
+generate `_git-init.sh` scripts for cross-machine synchronization.
+
+=== 4. Install or update the watcher
+
+[source,bash]
+----
+~/ike-dev/scripts/install-watcher.sh
+----
+
+The watcher is a `launchd` agent that monitors `~/ike-dev/` for
+filesystem changes and automatically runs `_git-init.sh` scripts when
+new repos arrive via Syncthing. No manual step is needed after this.
+
+=== 5. Run health check
+
+[source,bash]
+----
+~/ike-dev/scripts/health-check.sh
+----
+
+Verify all checks pass. Address any warnings (typically stale
+`.sync-conflict-*` files).
+
+== Polyglot Flags
+
+When `mvn ike:init` clones components, it creates a
+`.mvn/jvm.config` file in each component with:
+
+----
+-Dpolyglotimpl.AttachLibraryFailureAction=ignore
+----
+
+This suppresses GraalVM TruffleAttach warnings when building on
+standard (non-GraalVM) JDKs. The IKE build stack uses GraalVM
+polyglot libraries (via `maven-skin-tools` for site rendering), and
+without this flag, non-GraalVM JDKs produce harmless but noisy
+warnings during the build.
+
+The flag must live in `.mvn/jvm.config` because Maven reads it before
+POM parsing -- it cannot be inherited from a parent POM or set as a
+Maven property.
+
+== Split-Brain Prevention
+
+Working on the same files from two machines simultaneously creates
+Syncthing conflict files and potential confusion. See
+link:SPLIT-BRAIN.adoc[SPLIT-BRAIN.adoc] for the full prevention,
+detection, and resolution guide.
+
+== Workspace Commands
+
+[cols="1,2", options="header"]
+|===
+| Command | Description
+
+| `mvn ike:init`
+| Clone all components; install wrappers and hooks.
+
+| `mvn ike:status`
+| Git status across all components.
+
+| `mvn ike:dashboard`
+| Full workspace health: manifest check, status, cascade.
+
+| `mvn ike:pull`
+| `git pull --rebase` in dependency order.
+
+| `mvn ike:ws-sync`
+| Sync workspace.yaml branches with actual git branches.
+
+| `mvn ike:graph`
+| Print dependency graph (text or Graphviz DOT).
+
+| `mvn ike:ws-checkpoint -Dname=<name>`
+| Tag, build, deploy all components; record coordinates.
+|===

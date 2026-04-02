@@ -1,0 +1,217 @@
+= Split-Brain Prevention for Multi-Machine Development
+:toc:
+:toc-placement!:
+
+When two machines share a workspace via Syncthing, editing the same
+files simultaneously creates conflict files and potential git state
+confusion. This document covers how the workspace architecture
+prevents split-brain scenarios, how to detect them, and how to
+recover.
+
+toc::[]
+
+== The Problem
+
+Syncthing provides real-time file synchronization between a
+developer's machines -- typically a desktop and a laptop. Git handles
+collaboration between developers. These are different problems:
+
+* _Git_ synchronizes committed history. Uncommitted changes, IDE
+  settings, and build artifacts are invisible to git.
+* _Syncthing_ synchronizes the filesystem. Source files, uncommitted
+  changes, and editor state propagate without requiring a commit.
+
+If the same file is modified on both machines before Syncthing can
+propagate the change, Syncthing creates a `.sync-conflict-*` file
+and preserves both versions. This is the split-brain scenario.
+
+== Architectural Prevention
+
+The workspace architecture prevents split-brain through several
+layered mechanisms.
+
+=== Syncthing syncs source files only
+
+The shared ignore rules (`stignore-shared`) exclude machine-specific
+state:
+
+[cols="1,1,2", options="header"]
+|===
+| Content | Synced? | Reason
+
+| Source files (`.java`, `.adoc`, `.yaml`)
+| Yes
+| Primary value -- see edits instantly across machines.
+
+| Uncommitted changes
+| Yes
+| Continue work across machines without committing.
+
+| `.git/`
+| No
+| Each machine has independent git state. Syncing `.git/` causes
+  index corruption.
+
+| `target/`
+| No
+| Build output is machine-specific (paths, timestamps).
+
+| `.idea/workspace.xml`
+| No
+| IDE state is machine-specific.
+|===
+
+The `(?d)` prefix on `.git/` and `target/` patterns ensures that
+when a project directory is deleted on one machine, Syncthing can
+remove it on the other machine even though it contains these ignored
+files. Without `(?d)`, deletions block with "directory has been
+deleted on a remote device but contains ignored files" errors.
+
+=== Independent git state per machine
+
+Each machine maintains its own `.git/` directory. Commits, branches,
+reflog, and index are entirely local. There is no risk of git index
+corruption from concurrent operations because `.git/` is never
+synced.
+
+=== The _git-init.sh bootstrap mechanism
+
+When a new repo appears via Syncthing (source files but no `.git/`),
+the `_git-init.sh` bootstrap script handles initialization:
+
+. The `post-checkout` git hook on the source machine generates
+  `_git-init.sh` with the remote URL and branch.
+. Syncthing carries the script to the other machine.
+. The `launchd` watcher on the receiving machine detects it.
+. The watcher checks: does `.git/` already exist?
+  * *Yes* -- this is the source machine; skip (no action).
+  * *No* -- this is the target machine; run the script to initialize
+    git with `git init`, `remote add`, `fetch`, and checkout.
+. The script renames itself to `_git-init.done`.
+
+This creates a self-enforcing asymmetry: only the machine that
+_lacks_ git state will initialize it. The machine that already has
+`.git/` is assumed to be the active development machine.
+
+== Discipline Rules
+
+[IMPORTANT]
+====
+. *One machine active at a time.* Do not edit the same file on both
+  machines simultaneously. Switch machines by simply stopping work
+  on one and starting on the other -- Syncthing propagates changes
+  within seconds.
+. *Commit often.* Syncthing handles uncommitted changes, but git is
+  the durable record.
+. *Push to origin.* Syncthing is for convenience, GitHub is for
+  persistence. Push before leaving a machine for an extended period.
+====
+
+== Detection
+
+=== Check for conflict files
+
+Syncthing creates `.sync-conflict-*` files when it detects
+simultaneous edits.
+
+[source,bash]
+----
+# Scan for conflict files across all workspaces
+find ~/ike-dev -name '*.sync-conflict-*'
+----
+
+The `health-check.sh` script also reports these:
+
+[source,bash]
+----
+~/ike-dev/scripts/health-check.sh
+----
+
+=== Workspace status
+
+[source,bash]
+----
+mvn ike:status          # Branch, SHA, clean/dirty per component
+mvn ike:dashboard       # Full health check + cascade analysis
+----
+
+=== Syncthing web UI
+
+Open http://127.0.0.1:8384 to check sync status. Look for:
+
+* "Out of Sync" indicators on the folder.
+* "Failed Items" (the tab shows blocked deletions or conflicts).
+
+== Resolution
+
+If split-brain is detected (conflict files exist or workspace state
+is inconsistent):
+
+. *Stop working on one machine.* Pick the machine with the most
+  recent or most correct changes as the authority.
+
+. *Review conflict files.* Each `.sync-conflict-*` file is the
+  version from the other machine. Compare with the current file
+  and keep the correct version:
++
+[source,bash]
+----
+# Example: review a conflict
+diff settings.json settings.sync-conflict-20260307-133324-Y73BOCX.json
+
+# Keep current version (delete conflict file):
+rm settings.sync-conflict-20260307-133324-Y73BOCX.json
+
+# Or keep the conflict version:
+mv settings.sync-conflict-20260307-133324-Y73BOCX.json settings.json
+----
+
+. *Delete all resolved conflict files:*
++
+[source,bash]
+----
+find ~/ike-dev -name '*.sync-conflict-*' -delete
+----
+
+. *Realign workspace manifest:*
++
+[source,bash]
+----
+mvn ike:ws-sync -Dfrom=repos
+----
++
+This reads the actual git branches from cloned components and updates
+`workspace.yaml` to match reality.
+
+. *Verify clean state:*
++
+[source,bash]
+----
+mvn ike:status
+~/ike-dev/scripts/health-check.sh
+----
+
+== Summary
+
+[cols="1,2", options="header"]
+|===
+| Layer | Mechanism
+
+| Syncthing ignore
+| `.git/`, `target/` excluded with `(?d)` for clean deletions.
+
+| Git independence
+| Each machine has its own `.git/` -- no shared index.
+
+| Bootstrap asymmetry
+| `_git-init.sh` + watcher ensures one-way initialization.
+
+| Developer discipline
+| One machine at a time, commit often, push to origin.
+
+| Detection
+| `health-check.sh`, `mvn ike:status`, Syncthing web UI.
+
+| Recovery
+| Review conflict files, delete, `mvn ike:ws-sync`.
+|===
